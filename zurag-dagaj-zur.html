@@ -147,10 +147,14 @@ button:focus-visible,.filebtn:focus-within{outline:2px solid var(--accent);outli
       stream = await navigator.mediaDevices.getUserMedia({
         video:{ facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} }, audio:false
       });
-      cam.srcObject = stream;
-      await cam.play().catch(()=>{});
       track = stream.getVideoTracks()[0];
-      $('start').hidden = true;
+      $('start').hidden = true;            // hide first: iOS may never resolve play() behind an overlay
+      cam.setAttribute('playsinline','');
+      cam.setAttribute('webkit-playsinline','');
+      cam.muted = true;
+      cam.srcObject = stream;
+      const p = cam.play(); if(p && p.catch) p.catch(()=>{});
+      stage.addEventListener('click', () => { if(cam.paused && !$('freeze').classList.contains('on')) cam.play().catch(()=>{}); });
       $('status').textContent = 'Камер асаалттай';
       const caps = track.getCapabilities ? track.getCapabilities() : {};
       if(caps && caps.torch) $('torch').hidden = false;
