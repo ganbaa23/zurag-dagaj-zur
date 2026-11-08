@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Дагаж Зур</title>
+<style>
+:root{
+  --ink:#f3efe6; --ink-dim:rgba(243,239,230,.62);
+  --panel:rgba(18,20,22,.78); --line:rgba(243,239,230,.16);
+  --accent:#ffb340; --danger:#ff6b5a;
+  --ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:var(--ui);overflow:hidden;overscroll-behavior:none}
+#stage{position:fixed;inset:0;touch-action:none;overflow:hidden;background:#111}
+#cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#overlay{position:absolute;left:50%;top:50%;max-width:none;transform-origin:center center;pointer-events:none;user-select:none;-webkit-user-select:none;will-change:transform,opacity}
+/* top bar */
+.top{position:fixed;left:0;right:0;top:0;display:flex;gap:8px;align-items:center;justify-content:space-between;
+  padding:calc(env(safe-area-inset-top,0px) + 10px) max(12px,env(safe-area-inset-right,0px)) 10px max(12px,env(safe-area-inset-left,0px));
+  background:linear-gradient(rgba(0,0,0,.55),transparent);pointer-events:none}
+.top > *{pointer-events:auto}
+.brand{font-weight:700;letter-spacing:.02em;font-size:15px}
+.brand small{display:block;font-weight:400;color:var(--ink-dim);font-size:11px}
+/* bottom panel */
+.panel{position:fixed;left:0;right:0;bottom:0;background:var(--panel);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border-top:1px solid var(--line);
+  padding:12px max(14px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 12px) max(14px,env(safe-area-inset-left,0px));
+  display:grid;gap:12px;transition:transform .25s ease}
+.panel.hide{transform:translateY(110%)}
+.row{display:flex;gap:8px;align-items:center}
+.row label{font-size:12px;color:var(--ink-dim);min-width:74px}
+input[type=range]{flex:1;accent-color:var(--accent);height:28px}
+.val{font-variant-numeric:tabular-nums;font-size:12px;width:40px;text-align:right;color:var(--ink-dim)}
+.btns{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+button,.filebtn{appearance:none;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--ink);
+  font:500 12px/1.2 var(--ui);border-radius:12px;padding:10px 4px;min-height:44px;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center;gap:4px}
+button:active,.filebtn:active{background:rgba(255,255,255,.14)}
+button.on{background:var(--accent);color:#1a1200;border-color:var(--accent)}
+button:focus-visible,.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.filebtn input{display:none}
+.primary{background:var(--accent);color:#1a1200;border-color:var(--accent);font-weight:700}
+/* lock pill */
+#lockPill{position:fixed;right:max(14px,env(safe-area-inset-right,0px));bottom:calc(env(safe-area-inset-bottom,0px) + 18px);
+  border-radius:999px;padding:12px 18px;background:var(--panel);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+/* start / message screen */
+#start{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;gap:18px;
+  padding:24px max(24px,env(safe-area-inset-right,0px)) 24px max(24px,env(safe-area-inset-left,0px));background:#121416;z-index:5}
+#start h1{margin:0;font-size:30px;line-height:1.1;text-wrap:balance}
+#start p{margin:0;color:var(--ink-dim);line-height:1.5;max-width:34ch}
+#start ol{margin:0;padding-left:20px;color:var(--ink-dim);line-height:1.6;font-size:14px}
+#start .primary{font-size:16px;padding:16px;max-width:320px}
+#err{color:var(--danger);font-size:14px;line-height:1.5}
+.hint{position:fixed;left:50%;top:45%;transform:translate(-50%,-50%);text-align:center;color:var(--ink-dim);font-size:14px;pointer-events:none;
+  padding:0 24px;max-width:300px;line-height:1.5}
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="cam" playsinline muted autoplay></video>
+  <img id="overlay" alt="" hidden>
+  <div class="hint" id="hint">Зургаа сонгоно уу.<br>1 хуруугаар зөөнө, 2 хуруугаар томруулж эргүүлнэ.</div>
+</div>
+
+<div class="top" id="top">
+  <div class="brand">Дагаж Зур<small id="status">Камер бэлэн биш</small></div>
+  <button id="hideBtn" style="min-height:36px;padding:8px 12px" aria-label="Самбар нуух">Самбар ▾</button>
+</div>
+
+<div class="panel" id="panel">
+  <div class="row">
+    <label for="op">Тунгалаг</label>
+    <input type="range" id="op" min="5" max="100" value="45">
+    <span class="val" id="opV">45%</span>
+  </div>
+  <div class="row">
+    <label for="con">Тодрол</label>
+    <input type="range" id="con" min="50" max="300" value="100">
+    <span class="val" id="conV">100%</span>
+  </div>
+  <div class="btns">
+    <label class="filebtn primary">Зураг<input type="file" id="file" accept="image/*"></label>
+    <button id="flip">Толь</button>
+    <button id="gray">Хар-цагаан</button>
+    <button id="reset">Шинэчлэх</button>
+    <button id="rot">↻ 90°</button>
+    <button id="torch" hidden>Гэрэл</button>
+    <button id="freeze">Камер зогсоох</button>
+    <button id="lock">Түгжих</button>
+  </div>
+</div>
+
+<button id="lockPill" class="on" hidden>Түгжээтэй · нээх</button>
+
+<div id="start">
+  <h1>Дагаж Зур</h1>
+  <p>Камерын дүрс дээр зургаа бүдгээр харуулж, цаасан дээрээ дагуулж зурна.</p>
+  <ol>
+    <li>Утсаа цааснаас 25–35 см өндөрт аяга, ном, штативт тогтооно.</li>
+    <li>Зургаа сонгоод хуруугаар байрлалыг нь тааруулна.</li>
+    <li>“Түгжих” дарж, дэлгэц рүү харангаа зурна.</li>
+  </ol>
+  <button class="primary" id="go">Камер асаах</button>
+  <div id="err" hidden></div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const cam = $('cam'), img = $('overlay'), stage = $('stage');
+  let stream = null, track = null, wakeLock = null;
+
+  // overlay state
+  const S = { x:0, y:0, scale:1, rot:0, flip:false, gray:false, locked:false };
+
+  function apply(){
+    img.style.transform =
+      `translate(-50%,-50%) translate(${S.x}px,${S.y}px) rotate(${S.rot}rad) scale(${S.scale * (S.flip?-1:1)},${S.scale})`;
+    const op = $('op').value, con = $('con').value;
+    img.style.opacity = op/100;
+    img.style.filter = `contrast(${con}%)` + (S.gray ? ' grayscale(1)' : '');
+    $('opV').textContent = op+'%'; $('conV').textContent = con+'%';
+  }
+
+  function fitImage(){
+    if(!img.naturalWidth) return;
+    const w = stage.clientWidth*0.8, h = stage.clientHeight*0.6;
+    const k = Math.min(w/img.naturalWidth, h/img.naturalHeight);
+    img.style.width = img.naturalWidth*k+'px';
+    img.style.height = img.naturalHeight*k+'px';
+    S.x=0; S.y=0; S.scale=1; S.rot=0; apply();
+  }
+
+  // camera
+  async function startCam(){
+    const err = $('err'); err.hidden = true;
+    if(!navigator.mediaDevices?.getUserMedia){
+      err.textContent = 'Энэ браузер камер дэмжихгүй байна. Safari-аар https:// хаягаар нээнэ үү.';
+      err.hidden = false; return;
+    }
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({
+        video:{ facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} }, audio:false
+      });
+      cam.srcObject = stream;
+      await cam.play().catch(()=>{});
+      track = stream.getVideoTracks()[0];
+      $('start').hidden = true;
+      $('status').textContent = 'Камер асаалттай';
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      if(caps && caps.torch) $('torch').hidden = false;
+      keepAwake();
+    }catch(e){
+      err.textContent = (e && e.name === 'NotAllowedError')
+        ? 'Камерын зөвшөөрөл өгөөгүй байна. Safari → Тохиргоо (aA) → Website Settings → Camera → Allow болгоод дахин оролдоно уу.'
+        : 'Камер нээгдсэнгүй: ' + (e && e.message ? e.message : e);
+      err.hidden = false;
+    }
+  }
+  async function keepAwake(){
+    try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(_){}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'visible' && stream) keepAwake();
+  });
+  $('go').onclick = startCam;
+
+  // image load
+  $('file').onchange = e => {
+    const f = e.target.files && e.target.files[0]; if(!f) return;
+    const url = URL.createObjectURL(f);
+    img.onload = () => { img.hidden = false; $('hint').hidden = true; fitImage(); };
+    img.src = url;
+  };
+
+  // gestures
+  const pts = new Map(); let g0 = null;
+  function snapshot(){
+    const p = [...pts.values()];
+    if(p.length === 1) return { n:1, cx:p[0].x, cy:p[0].y, x:S.x, y:S.y };
+    const [a,b] = p;
+    return { n:2, cx:(a.x+b.x)/2, cy:(a.y+b.y)/2, d:Math.hypot(b.x-a.x,b.y-a.y),
+             ang:Math.atan2(b.y-a.y,b.x-a.x), x:S.x, y:S.y, scale:S.scale, rot:S.rot };
+  }
+  stage.addEventListener('pointerdown', e => {
+    if(S.locked || img.hidden) return;
+    stage.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(pts.size <= 2) g0 = snapshot();
+  });
+  stage.addEventListener('pointermove', e => {
+    if(!pts.has(e.pointerId) || S.locked) return;
+    pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    const c = snapshot(); if(!g0 || c.n !== g0.n) { g0 = c; return; }
+    S.x = g0.x + (c.cx - g0.cx); S.y = g0.y + (c.cy - g0.cy);
+    if(c.n === 2){
+      S.scale = Math.max(0.05, Math.min(20, g0.scale * c.d / g0.d));
+      S.rot = g0.rot + (c.ang - g0.ang);
+    }
+    apply();
+  });
+  const up = e => { pts.delete(e.pointerId); g0 = pts.size ? snapshot() : null; };
+  stage.addEventListener('pointerup', up);
+  stage.addEventListener('pointercancel', up);
+  // block iOS page zoom gestures
+  ['gesturestart','gesturechange'].forEach(t => document.addEventListener(t, e => e.preventDefault(), {passive:false}));
+
+  // controls
+  $('op').oninput = apply; $('con').oninput = apply;
+  $('flip').onclick = () => { S.flip = !S.flip; $('flip').classList.toggle('on',S.flip); apply(); };
+  $('gray').onclick = () => { S.gray = !S.gray; $('gray').classList.toggle('on',S.gray); apply(); };
+  $('rot').onclick = () => { S.rot += Math.PI/2; apply(); };
+  $('reset').onclick = fitImage;
+
+  let torchOn = false;
+  $('torch').onclick = async () => {
+    if(!track) return;
+    try{ torchOn = !torchOn; await track.applyConstraints({advanced:[{torch:torchOn}]});
+         $('torch').classList.toggle('on',torchOn); }
+    catch(_){ torchOn = false; $('torch').hidden = true; }
+  };
+
+  $('freeze').onclick = () => {
+    if(!cam.srcObject) return;
+    if(cam.paused){ cam.play(); $('freeze').classList.remove('on'); $('freeze').textContent='Камер зогсоох'; }
+    else { cam.pause(); $('freeze').classList.add('on'); $('freeze').textContent='Камер үргэлжлүүлэх'; }
+  };
+
+  function setLock(v){
+    S.locked = v; pts.clear(); g0 = null;
+    $('panel').classList.toggle('hide', v);
+    $('top').hidden = v;
+    $('lockPill').hidden = !v;
+  }
+  $('lock').onclick = () => setLock(true);
+  $('lockPill').onclick = () => setLock(false);
+
+  let panelHidden = false;
+  $('hideBtn').onclick = () => {
+    panelHidden = !panelHidden;
+    $('panel').classList.toggle('hide', panelHidden);
+    $('hideBtn').textContent = panelHidden ? 'Самбар ▴' : 'Самбар ▾';
+  };
+
+  window.addEventListener('resize', () => { if(!img.hidden) apply(); });
+  apply();
+})();
+</script>
+</body>
+</html>
