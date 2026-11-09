@@ -84,6 +84,15 @@ button:focus-visible,.filebtn:focus-within{outline:2px solid var(--accent);outli
     <input type="range" id="con" min="50" max="300" value="100">
     <span class="val" id="conV">100%</span>
   </div>
+  <div class="row">
+    <label for="camSel">Камер</label>
+    <select id="camSel" style="flex:1;min-width:0;min-height:36px;border-radius:10px;background:rgba(255,255,255,.06);color:var(--ink);border:1px solid var(--line);font:13px var(--ui);padding:6px"></select>
+  </div>
+  <div class="row" id="focusRow" hidden>
+    <label for="fd">Фокус</label>
+    <input type="range" id="fd" step="any">
+    <button id="focusLock" style="min-height:36px;padding:6px 10px">Түгжих</button>
+  </div>
   <div class="btns">
     <label class="filebtn primary">Зураг<input type="file" id="file" accept="image/*"></label>
     <button id="flip">Толь</button>
@@ -138,16 +147,18 @@ button:focus-visible,.filebtn:focus-within{outline:2px solid var(--accent);outli
   }
 
   // camera
-  async function startCam(){
+  async function startCam(deviceId){
     const err = $('err'); err.hidden = true;
     if(!navigator.mediaDevices?.getUserMedia){
       err.textContent = 'Энэ браузер камер дэмжихгүй байна. Safari-аар https:// хаягаар нээнэ үү.';
       err.hidden = false; return;
     }
     try{
-      stream = await navigator.mediaDevices.getUserMedia({
-        video:{ facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} }, audio:false
-      });
+      if(stream) stream.getTracks().forEach(t => t.stop());
+      const v = deviceId
+        ? { deviceId:{exact:deviceId}, width:{ideal:1920}, height:{ideal:1080} }
+        : { facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} };
+      stream = await navigator.mediaDevices.getUserMedia({ video:v, audio:false });
       track = stream.getVideoTracks()[0];
       $('start').hidden = true;            // hide first: iOS may never resolve play() behind an overlay
       cam.setAttribute('playsinline','');
@@ -158,7 +169,9 @@ button:focus-visible,.filebtn:focus-within{outline:2px solid var(--accent);outli
       stage.addEventListener('click', () => { if(cam.paused && !$('freeze').classList.contains('on')) cam.play().catch(()=>{}); });
       $('status').textContent = 'Камер асаалттай';
       const caps = track.getCapabilities ? track.getCapabilities() : {};
-      if(caps && caps.torch) $('torch').hidden = false;
+      $('torch').hidden = !(caps && caps.torch);
+      setupFocus(caps);
+      listCams();
       keepAwake();
     }catch(e){
       err.textContent = (e && e.name === 'NotAllowedError')
@@ -167,13 +180,60 @@ button:focus-visible,.filebtn:focus-within{outline:2px solid var(--accent);outli
       err.hidden = false;
     }
   }
+  // camera list: on iPhone the ultra-wide lens has a much deeper focus range
+  async function listCams(){
+    try{
+      const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+      const sel = $('camSel'), cur = track && track.getSettings ? track.getSettings().deviceId : '';
+      sel.innerHTML = '';
+      devs.forEach((d,i) => {
+        const o = document.createElement('option');
+        let name = d.label || ('Камер ' + (i+1));
+        if(/ultra wide/i.test(name)) name += ' — фокус тогтвортой';
+        o.value = d.deviceId; o.textContent = name;
+        if(d.deviceId === cur) o.selected = true;
+        sel.appendChild(o);
+      });
+    }catch(_){}
+  }
+  $('camSel').onchange = e => startCam(e.target.value);
+
+  // manual focus — only where the browser exposes it (mostly Android Chrome)
+  let focusLocked = false;
+  function setupFocus(caps){
+    focusLocked = false; $('focusLock').classList.remove('on'); $('focusLock').textContent = 'Түгжих';
+    const fd = caps && caps.focusDistance;
+    const ok = fd && caps.focusMode && caps.focusMode.includes('manual');
+    $('focusRow').hidden = !ok;
+    if(!ok) return;
+    const r = $('fd'); r.min = fd.min; r.max = fd.max; r.step = fd.step || 'any';
+    const s = track.getSettings(); r.value = s.focusDistance ?? fd.min;
+  }
+  async function manualFocus(){
+    try{ await track.applyConstraints({advanced:[{focusMode:'manual', focusDistance:+$('fd').value}]}); return true; }
+    catch(_){ return false; }
+  }
+  $('fd').oninput = async () => {
+    if(await manualFocus()){ focusLocked = true; $('focusLock').classList.add('on'); $('focusLock').textContent = 'Түгжээтэй'; }
+  };
+  $('focusLock').onclick = async () => {
+    if(!track) return;
+    if(focusLocked){
+      try{ await track.applyConstraints({advanced:[{focusMode:'continuous'}]}); }catch(_){}
+      focusLocked = false; $('focusLock').classList.remove('on'); $('focusLock').textContent = 'Түгжих';
+    } else {
+      const s = track.getSettings(); if(s.focusDistance != null) $('fd').value = s.focusDistance;
+      if(await manualFocus()){ focusLocked = true; $('focusLock').classList.add('on'); $('focusLock').textContent = 'Түгжээтэй'; }
+    }
+  };
+
   async function keepAwake(){
     try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(_){}
   }
   document.addEventListener('visibilitychange', () => {
     if(document.visibilityState === 'visible' && stream) keepAwake();
   });
-  $('go').onclick = startCam;
+  $('go').onclick = () => startCam();
 
   // image load
   $('file').onchange = e => {
